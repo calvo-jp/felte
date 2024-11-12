@@ -1,11 +1,9 @@
-import matchers from '@testing-library/jest-dom/matchers';
+import '@testing-library/jest-dom/vitest';
 import { expect, describe, test, vi } from 'vitest';
 import { createForm } from './common';
 import { validateSchema, validator } from '../src';
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { get } from 'svelte/store';
-
-expect.extend(matchers);
 
 type Data = {
   email: string;
@@ -15,8 +13,8 @@ type Data = {
 describe('Validator zod', () => {
   test('correctly validates', async () => {
     const schema = z.object({
-      email: z.string().email().nonempty(),
-      password: z.string().nonempty(),
+      email: z.string().email().min(1),
+      password: z.string().min(1),
     });
     const mockData = {
       email: '',
@@ -52,8 +50,8 @@ describe('Validator zod', () => {
   test('correctly validates deep form', async () => {
     const schema = z.object({
       account: z.object({
-        email: z.string().email().nonempty(),
-        password: z.string().nonempty(),
+        email: z.string().email().min(1),
+        password: z.string().min(1),
       }),
     });
     const mockData = {
@@ -97,8 +95,8 @@ describe('Validator zod', () => {
 
   test('correctly validates with extend', async () => {
     const schema = z.object({
-      email: z.string().email().nonempty(),
-      password: z.string().nonempty(),
+      email: z.string().email().min(1),
+      password: z.string().min(1),
     });
     const warnSchema = z.object({
       password: z
@@ -152,8 +150,8 @@ describe('Validator zod', () => {
   test('correctly validates deep form with extend', async () => {
     const schema = z.object({
       account: z.object({
-        email: z.string().email().nonempty(),
-        password: z.string().nonempty(),
+        email: z.string().email().min(1),
+        password: z.string().min(1),
       }),
     });
     const mockData = {
@@ -198,8 +196,8 @@ describe('Validator zod', () => {
   test('correctly validates deep form with other validate', async () => {
     const schema = z.object({
       account: z.object({
-        email: z.string().email().nonempty(),
-        password: z.string().nonempty(),
+        email: z.string().email().min(1),
+        password: z.string().min(1),
       }),
     });
     const mockData = {
@@ -314,7 +312,7 @@ describe('Validator zod', () => {
     });
     const mockData = { elems: [null, { name: '' }] };
 
-    const { validate, errors } = createForm<typeof mockData>({
+    const { validate, errors } = createForm({
       initialValues: mockData,
       onSubmit: vi.fn(),
       extend: validator({ schema }),
@@ -325,5 +323,44 @@ describe('Validator zod', () => {
     expect(get(errors)).to.deep.equal({
       elems: [{ 0: null }, { name: null }],
     });
+  });
+
+  test('should surface union type errors', async () => {
+    async function t(schema: ZodSchema, initialValues: object) {
+      const { validate, errors } = createForm({
+        initialValues,
+        extend: validator({ schema }),
+      });
+      await validate();
+      return get(errors);
+    }
+
+    const schema = z.object({ foo: z.string().min(1) });
+    const data = { foo: '' };
+
+    const unionErrors = await t(z.union([schema, schema]), data);
+    const errors = await t(schema, data);
+
+    expect(unionErrors).to.deep.equal(errors);
+  });
+
+  test('should surface discriminatedUnion type errors', async () => {
+    async function t(schema: ZodSchema, initialValues: object) {
+      const { validate, errors } = createForm({
+        initialValues,
+        extend: validator({ schema }),
+      });
+      await validate();
+      return get(errors);
+    }
+
+    const schema = z.discriminatedUnion('type', [
+      z.object({ type: z.literal('foo'), foo: z.string().min(1) }),
+      z.object({ type: z.literal('bar'), bar: z.string().min(1) })
+    ], { errorMap: () => ({ message: 'Oops' }) });
+
+    const errors = await t(schema, { type: 'baz' });
+
+    expect(errors).to.deep.equal({ type: ['Oops'] });
   });
 });
